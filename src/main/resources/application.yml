@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: med-recycle
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/med_recycle}
+    username: ${DB_USER:med}
+    password: ${DB_PASSWORD:med123}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    time-zone: Asia/Shanghai
+
+app:
+  # 暂存超期天数：袋入柜超过该天数未交接即视为超期
+  storage-limit-days: 14
+  # 暂存柜容量预警比例（占用达到该比例即预警）
+  cabinet-warn-ratio: 0.8
+  # 环保公司上门量默认阈值（克），社区点可单独配置
+  default-pickup-threshold-grams: 50000
+
+logging:
+  level:
+    root: info

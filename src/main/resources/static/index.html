@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社区药箱 · 过期药回收服务</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f4f0; color: #2c3e2d; }
+  header { background: linear-gradient(135deg, #2e7d4f, #4caf7d); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  header h1 { font-size: 18px; }
+  header .who { font-size: 13px; opacity: .95; }
+  nav { display: flex; gap: 6px; background: #fff; padding: 8px 24px; border-bottom: 1px solid #dde8dd; flex-wrap: wrap; }
+  nav button { border: 1px solid #cfe0cf; background: #f7fbf7; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  nav button.active { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+  main { max-width: 1080px; margin: 18px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: #2e7d4f; border-left: 4px solid #4caf7d; padding-left: 8px; }
+  label { display: block; font-size: 12px; color: #607160; margin: 8px 0 3px; }
+  input, select, textarea { width: 100%; padding: 7px 9px; border: 1px solid #cfdccf; border-radius: 6px; font-size: 13px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .checks { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  .checks label { display: flex; align-items: center; gap: 4px; margin: 0; }
+  .checks input { width: auto; }
+  button.act { margin-top: 12px; background: #2e7d4f; color: #fff; border: none; border-radius: 6px; padding: 8px 20px; cursor: pointer; font-size: 13px; }
+  button.act.sub { background: #607160; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+  th, td { border: 1px solid #e2ece2; padding: 6px 8px; text-align: left; }
+  th { background: #f2f7f2; }
+  pre { background: #26332a; color: #b9e6c5; padding: 12px; border-radius: 8px; font-size: 12px; overflow: auto; max-height: 320px; margin-top: 10px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #e3f0e5; color: #2e7d4f; }
+  .warn { background: #fdf0e3; color: #b26a21; }
+  .danger { background: #fbe3e3; color: #b23535; }
+  .hidden { display: none; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 8px; }
+  .kpi { background: #f4faf5; border: 1px solid #d9ead9; border-radius: 8px; padding: 10px; text-align: center; }
+  .kpi b { display: block; font-size: 20px; color: #2e7d4f; }
+  .kpi span { font-size: 12px; color: #607160; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌿 社区药箱 · 过期药回收称重兑换与环保交接</h1>
+  <div class="who" id="whoBox">未登录</div>
+</header>
+<nav id="navBox"></nav>
+<main>
+  <div class="card" id="loginCard">
+    <h2>登录 / 注册</h2>
+    <div class="row">
+      <div><label>用户名</label><input id="loginUser" value="resident01"></div>
+      <div><label>密码</label><input id="loginPass" type="password" value="resident123"></div>
+    </div>
+    <button class="act" onclick="login()">登录</button>
+    <button class="act sub" onclick="register()">注册为居民</button>
+    <div style="font-size:12px;color:#607160;margin-top:10px">
+      测试账号：admin/admin123（管理员） · collector01/collector123（回收员） · resident01/resident123（居民）
+    </div>
+  </div>
+  <div id="appBox"></div>
+  <div class="card"><h2>输出</h2><pre id="out">—</pre></div>
+</main>
+
+<script>
+let token = null, me = null;
+const $ = id => document.getElementById(id);
+const out = v => $('out').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const json = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
+  if (!res.ok) throw json;
+  return json.data;
+}
+const call = fn => fn().then(out).catch(e => out('❌ ' + (e.message || JSON.stringify(e))));
+
+async function login() {
+  const d = await call(() => api('POST', '/api/auth/login', { username: $('loginUser').value, password: $('loginPass').value }));
+  if (d && d.token) { token = d.token; me = d.user; renderApp(); }
+}
+async function register() {
+  await call(() => api('POST', '/api/auth/register', { username: $('loginUser').value, password: $('loginPass').value, name: $('loginUser').value }));
+}
+
+const MENUS = {
+  RESIDENT: [['预约回收', vResidentAppt], ['我的预约', vMyAppts], ['积分与兑换', vPoints], ['批次追溯', vTrace]],
+  COLLECTOR: [['现场作业', vCollector]],
+  ADMIN: [['社区看板', vDashboard], ['人工复核', vReviews], ['环保交接', vHandover], ['异常处理', vExceptions], ['基础数据', vBase]]
+};
+
+function renderApp() {
+  $('whoBox').textContent = me ? `${me.name}（${me.role}）` : '未登录';
+  const menus = MENUS[me.role] || [];
+  $('navBox').innerHTML = menus.map((m, i) => `<button onclick="menuGo(${i})" id="nav${i}">${m[0]}</button>`).join('');
+  window._menus = menus;
+  menuGo(0);
+}
+function menuGo(i) {
+  window._menus.forEach((_, j) => $('nav' + j).classList.toggle('active', i === j));
+  window._menus[i][1]();
+}
+
+// ---------- 居民 ----------
+function vResidentAppt() {
+  $('appBox').innerHTML = `<div class="card"><h2>预约过期药回收</h2>
+    <div class="row">
+      <div><label>药品类型</label><input id="aDrug" value="感冒灵颗粒"></div>
+      <div><label>数量（盒/瓶）</label><input id="aQty" type="number" value="2"></div>
+      <div><label>社区点 ID</label><input id="aPoint" type="number" value="1"></div>
+      <div><label>活动日 ID（可空）</label><input id="aDay" type="number"></div>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="aRx">含处方药</label>
+      <label><input type="checkbox" id="aLiquid">液体</label>
+      <label><input type="checkbox" id="aInj">针剂</label>
+      <label><input type="checkbox" id="aInfo">有个人信息包装</label>
+    </div>
+    <label>备注</label><input id="aNote">
+    <button class="act" onclick="call(()=>api('POST','/api/resident/appointments',{drugType:aDrug.value,quantity:+aQty.value,communityPointId:+aPoint.value,activityDayId:aDay.value?+aDay.value:null,hasPrescription:aRx.checked,isLiquid:aLiquid.checked,isInjection:aInj.checked,hasPersonalInfo:aInfo.checked,note:aNote.value}))">提交预约</button>
+  </div>`;
+}
+function vMyAppts() {
+  $('appBox').innerHTML = `<div class="card"><h2>我的预约</h2><div id="myAppts"></div></div>`;
+  call(async () => {
+    const list = await api('GET', '/api/resident/appointments');
+    $('myAppts').innerHTML = '<table><tr><th>预约号</th><th>药品</th><th>数量</th><th>标志</th><th>状态</th></tr>' +
+      list.map(a => `<tr><td>${a.appointmentNo}</td><td>${a.drugType}</td><td>${a.quantity}</td><td>${[a.hasPrescription&&'处方',a.isLiquid&&'液体',a.isInjection&&'针剂',a.hasPersonalInfo&&'个人信息'].filter(Boolean).join('/')||'-'}</td><td><span class="badge">${a.status}</span></td></tr>`).join('') + '</table>';
+    return '共 ' + list.length + ' 条预约';
+  });
+}
+function vPoints() {
+  $('appBox').innerHTML = `<div class="card"><h2>积分与兑换</h2>
+    <div id="pBalance"></div>
+    <div class="row"><div><label>兑换物品</label><input id="rItem" value="环保购物袋"></div>
+    <div><label>所需积分</label><input id="rPoints" type="number" value="30"></div></div>
+    <button class="act" onclick="call(()=>api('POST','/api/resident/points/redeem',{item:rItem.value,points:+rPoints.value}).then(r=>{vPoints();return r;}))">兑换</button>
+    <div id="pTxns"></div></div>`;
+  call(async () => {
+    const [acc, txns] = await Promise.all([api('GET', '/api/resident/points'), api('GET', '/api/resident/points/transactions')]);
+    $('pBalance').innerHTML = `<div class="kpis"><div class="kpi"><b>${acc.balance}</b><span>当前积分</span></div></div>`;
+    $('pTxns').innerHTML = '<table><tr><th>时间</th><th>类型</th><th>积分</th><th>备注</th></tr>' +
+      txns.slice(0, 20).map(t => `<tr><td>${t.createdAt}</td><td>${t.refType}</td><td>${t.points}</td><td>${t.remark||''}</td></tr>`).join('') + '</table>';
+    return '流水 ' + txns.length + ' 条';
+  });
+}
+function vTrace() {
+  $('appBox').innerHTML = `<div class="card"><h2>批次去向追溯</h2>
+    <label>批次号（如 BTH…）</label><input id="tBatch">
+    <button class="act" onclick="call(()=>api('GET','/api/resident/trace/'+tBatch.value))">查询</button></div>`;
+}
+
+// ---------- 回收员 ----------
+function vCollector() {
+  $('appBox').innerHTML = `
+  <div class="card"><h2>1. 开批次</h2>
+    <div class="row"><div><label>社区点 ID</label><input id="cPoint" type="number" value="1"></div>
+    <div><label>活动日 ID（可空）</label><input id="cDay" type="number"></div></div>
+    <button class="act" onclick="call(()=>api('POST','/api/collector/batches',{communityPointId:+cPoint.value,activityDayId:cDay.value?+cDay.value:null}).then(d=>{cBatch.value=d.id;return d;}))">开批次</button>
+    <label>当前批次 ID</label><input id="cBatch" type="number">
+  </div>
+  <div class="card"><h2>2. 扫码登记（预约号）</h2>
+    <div class="row"><div><label>预约号</label><input id="cApptNo"></div></div>
+    <button class="act" onclick="call(()=>api('POST','/api/collector/batches/'+cBatch.value+'/checkin',{appointmentNo:cApptNo.value}))">登记到场</button>
+  </div>
+  <div class="card"><h2>3. 分类称重封袋</h2>
+    <div class="row">
+      <div><label>预约号</label><input id="wApptNo"></div>
+      <div><label>分类</label><select id="wCat"><option>TABLET</option><option>ANTIBIOTIC</option><option>PSYCHOTROPIC</option><option>SYRINGE</option><option>EXTERNAL</option><option>LIQUID</option></select></div>
+      <div><label>重量（克）</label><input id="wGrams" type="number" value="500"></div>
+      <div><label>封袋编号</label><input id="wSeal" value="BAG-'+Date.now()+'"></div>
+      <div><label>照片URL（逗号分隔）</label><input id="wPhotos" value="pkg.jpg,seal.jpg"></div>
+    </div>
+    <button class="act" onclick="call(()=>api('POST','/api/collector/batches/'+cBatch.value+'/weigh',{appointmentNo:wApptNo.value,category:wCat.value,weightGrams:+wGrams.value,sealBagNo:wSeal.value,photoUrls:wPhotos.value.split(',')}))">称重封袋</button>
+    <button class="act sub" onclick="call(()=>api('POST','/api/collector/batches/'+cBatch.value+'/store',{sealBagNo:wSeal.value,cabinetId:+wCab.value}))">入暂存柜</button>
+    <label>暂存柜 ID</label><input id="wCab" type="number" value="1" style="max-width:120px">
+  </div>
+  <div class="card"><h2>4. 异常上报</h2>
+    <div class="row">
+      <div><label>类型</label><select id="eType"><option>UNEXPIRED_DRUG</option><option>PRESCRIPTION_INFO_EXPOSED</option><option>UNSAFE_INJECTION</option><option>LIQUID_LEAK</option><option>WEIGHT_DISPUTE</option><option>ENV_REJECT</option><option>GENERAL</option></select></div>
+      <div><label>袋ID（可空）</label><input id="eBag" type="number"></div>
+    </div>
+    <label>描述</label><input id="eDesc" value="现场发现异常">
+    <button class="act" onclick="call(()=>api('POST','/api/collector/batches/'+cBatch.value+'/exceptions',{type:eType.value,description:eDesc.value,bagId:eBag.value?+eBag.value:null}))">上报</button>
+    <button class="act sub" onclick="call(()=>api('POST','/api/collector/batches/'+cBatch.value+'/close'))">关闭现场回收</button>
+    <button class="act sub" onclick="call(()=>api('GET','/api/collector/batches/'+cBatch.value+'/bags'))">查看批次袋</button>
+  </div>`;
+}
+
+// ---------- 管理员 ----------
+function vDashboard() {
+  $('appBox').innerHTML = `<div class="card"><h2>社区看板</h2>
+    <label>社区点 ID</label><input id="dPoint" type="number" value="1" style="max-width:120px">
+    <button class="act" onclick="loadDash()">刷新</button><div id="dashBox"></div></div>`;
+  loadDash();
+}
+function loadDash() {
+  call(async () => {
+    const d = await api('GET', '/api/admin/dashboard?communityPointId=' + $('dPoint').value);
+    $('dashBox').innerHTML = `<div class="kpis">
+      <div class="kpi"><b>${d.storedBagCount}</b><span>暂存袋数</span></div>
+      <div class="kpi"><b>${d.storedTotalWeightGrams}g</b><span>暂存总重</span></div>
+      <div class="kpi"><b class="${d.pickupReady?'':'warn'}">${d.pickupReady?'已达':'未达'}</b><span>上门量 ${d.pickupThresholdGrams}g</span></div>
+      <div class="kpi"><b class="${d.overdueBagCount?'danger':''}">${d.overdueBagCount}</b><span>超期袋</span></div>
+      <div class="kpi"><b>${d.pendingReviewCount}</b><span>待复核</span></div>
+      <div class="kpi"><b class="${d.openExceptionCount?'danger':''}">${d.openExceptionCount}</b><span>未解决异常</span></div>
+      <div class="kpi"><b>${d.dualHandoverHint?'需双人':'普通'}</b><span>交接方式</span></div></div>
+      <h2 style="margin-top:12px">暂存柜</h2><table><tr><th>编号</th><th>容量</th><th>已用</th><th>状态</th></tr>` +
+      d.cabinets.map(c => `<tr><td>${c.code}</td><td>${c.capacityBags}</td><td>${c.usedBags}</td><td>${c.capacityWarning?'<span class="badge danger">容量预警</span>':'<span class="badge">正常</span>'}</td></tr>`).join('') + `</table>
+      <h2 style="margin-top:12px">超期袋</h2><table><tr><th>封袋号</th><th>分类</th><th>重量</th><th>柜</th><th>已存天数</th></tr>` +
+      d.overdueBags.map(b => `<tr><td>${b.sealBagNo}</td><td>${b.category}</td><td>${b.weightGrams}g</td><td>${b.cabinetCode||'-'}</td><td>${b.storedDays}</td></tr>`).join('') + '</table>';
+    return d;
+  });
+}
+function vReviews() {
+  $('appBox').innerHTML = `<div class="card"><h2>人工复核（高风险药品）</h2><div id="revBox"></div></div>`;
+  call(async () => {
+    const list = await api('GET', '/api/admin/reviews?status=PENDING');
+    $('revBox').innerHTML = '<table><tr><th>ID</th><th>批次</th><th>袋</th><th>品类</th><th>原因</th><th>操作</th></tr>' +
+      list.map(t => `<tr><td>${t.id}</td><td>${t.batchId}</td><td>${t.bagId}</td><td>${t.category}</td><td>${t.reason}</td>
+        <td><button class="act" style="margin:0;padding:3px 10px" onclick="call(()=>api('POST','/api/admin/reviews/${t.id}/decision',{approved:true,comment:'核验通过'}).then(vReviews))">通过</button>
+        <button class="act sub" style="margin:0;padding:3px 10px" onclick="call(()=>api('POST','/api/admin/reviews/${t.id}/decision',{approved:false,comment:'核验不通过'}).then(vReviews))">拒绝</button></td></tr>`).join('') + '</table>';
+    return '待复核 ' + list.length + ' 条';
+  });
+}
+function vHandover() {
+  $('appBox').innerHTML = `<div class="card"><h2>环保交接</h2>
+    <div class="row">
+      <div><label>社区点 ID</label><input id="hPoint" type="number" value="1"></div>
+      <div><label>环保公司（去向）</label><input id="hEnv" value="绿源环保科技公司"></div>
+      <div><label>批次ID（逗号，可空=全部可交接）</label><input id="hBatches"></div>
+    </div>
+    <button class="act" onclick="call(()=>api('POST','/api/admin/handovers',{communityPointId:+hPoint.value,envCompany:hEnv.value,batchIds:hBatches.value?hBatches.value.split(',').map(Number):null}).then(d=>{hId.value=d.id;return d;}))">创建交接单</button>
+    <div class="row" style="margin-top:10px">
+      <div><label>交接单 ID</label><input id="hId" type="number"></div>
+      <div><label>签收人</label><input id="hRecv" value="赵环保"></div>
+      <div><label>第二签收人（双人交接）</label><input id="hRecv2"></div>
+    </div>
+    <button class="act" onclick="call(()=>api('POST','/api/admin/handovers/'+hId.value+'/complete',{receiverName:hRecv.value,secondReceiverName:hRecv2.value||null,photoUrls:['handover.jpg']}))">完成交接</button>
+    <button class="act sub" onclick="call(()=>api('GET','/api/admin/handovers/'+hId.value+'/report'))">查看交接报告</button>
+  </div>`;
+}
+function vExceptions() {
+  $('appBox').innerHTML = `<div class="card"><h2>异常处理</h2><div id="exBox"></div></div>`;
+  call(async () => {
+    const list = await api('GET', '/api/admin/exceptions?status=OPEN');
+    $('exBox').innerHTML = '<table><tr><th>ID</th><th>批次</th><th>类型</th><th>描述</th><th>操作</th></tr>' +
+      list.map(e => `<tr><td>${e.id}</td><td>${e.batchId||'-'}</td><td>${e.type}</td><td>${e.description||''}</td>
+        <td><button class="act" style="margin:0;padding:3px 10px" onclick="call(()=>api('POST','/api/admin/exceptions/${e.id}/resolve',{resolution:'已现场处理',finalWeightGrams:null}).then(vExceptions))">解决</button></td></tr>`).join('') + '</table>';
+    return '未解决异常 ' + list.length + ' 条';
+  });
+}
+function vBase() {
+  $('appBox').innerHTML = `<div class="card"><h2>基础数据</h2>
+    <button class="act sub" onclick="call(()=>api('GET','/api/public/community-points'))">社区点</button>
+    <button class="act sub" onclick="call(()=>api('GET','/api/public/points-rules'))">积分规则</button>
+    <button class="act sub" onclick="call(()=>api('GET','/api/admin/cabinets?communityPointId=1'))">暂存柜</button>
+    <button class="act sub" onclick="call(()=>api('GET','/api/admin/trace/'+prompt('批次号')))">批次追溯（管理）</button>
+  </div>`;
+}
+</script>
+</body>
+</html>
